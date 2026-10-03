@@ -12,3 +12,6 @@ research/spike/samples/
 
 # macOS
 .DS_Store
+
+# Raw schedule snapshots (DECISIONS.md #18)
+data/
