@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ team_name }} · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>{{ team_name }}</h1>
+<p class="lede">Your private calendar link. Anyone with it can see this feed, so keep it to yourself.</p>
+<div class="card">
+  <label for="url">Calendar URL</label>
+  <input id="url" type="text" readonly value="{{ https_url }}" onclick="this.select()">
+  <a class="button" href="{{ webcal_url }}">Open in Apple Calendar</a>
+  <ol>
+    <li><strong>Google Calendar:</strong> Other calendars → + → From URL → paste the link.</li>
+    <li><strong>Apple Calendar:</strong> use the button, or File → New Calendar Subscription.</li>
+  </ol>
+  <small>Times are listed in Eastern Time (ET); your calendar shows them in your own time zone.
+  Calendar apps check for updates on their own schedule (Google can take 12–24 hours).</small>
+</div>
+{% endblock %}
