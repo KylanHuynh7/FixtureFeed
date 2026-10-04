@@ -26,7 +26,7 @@ def test_schema_creates_all_tables(db):
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
     )}
     assert tables == {"teams", "games", "game_source_ids", "snapshots",
-                      "game_changes", "feeds"}
+                      "game_changes", "feeds", "schema_migrations"}
 
 
 def test_all_32_teams_seeded(db):

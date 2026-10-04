@@ -15,8 +15,8 @@ Requires Python 3.13, [uv](https://docs.astral.sh/uv/), and PostgreSQL 17.
 uv sync
 createdb fixturefeed && createdb fixturefeed_test
 
-# Create tables (once, on an empty database)
-uv run python -c "from fixturefeed.db import connect, apply_schema; c = connect(); apply_schema(c); c.close()"
+# Create or upgrade tables (safe to re-run)
+uv run python -m fixturefeed.db
 
 # Download the current schedule and apply any changes
 uv run python -m fixturefeed.ingest

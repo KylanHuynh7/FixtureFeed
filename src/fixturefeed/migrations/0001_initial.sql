@@ -1,6 +1,4 @@
--- FixtureFeed schema (DECISIONS.md #18). Single file, no migrations yet:
--- before deploy we add a migration tool. Applying this drops nothing; it
--- expects an empty database.
+-- 0001: initial schema (DECISIONS.md #18).
 
 CREATE TABLE teams (
     abbr text PRIMARY KEY,          -- nflverse abbreviation, e.g. 'SF'

@@ -3,7 +3,7 @@ import os
 import psycopg
 import pytest
 
-from fixturefeed.db import apply_schema
+from fixturefeed.db import migrate
 
 TEST_DATABASE_URL = os.environ.get(
     "FIXTUREFEED_TEST_DATABASE_URL", "postgresql:///fixturefeed_test"
@@ -20,5 +20,5 @@ def db():
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
         conn.commit()
-        apply_schema(conn)
+        migrate(conn)
         yield conn
