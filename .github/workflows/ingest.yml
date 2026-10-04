@@ -20,8 +20,22 @@ jobs:
       # and advisory locks.
       DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uv sync --locked --no-dev
-      - run: uv run --no-dev python -m fixturefeed.db
-      - run: uv run --no-dev python -m fixturefeed.ingest
+      - name: Check database secret
+        id: secret
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::DATABASE_URL_UNPOOLED secret not set yet; skipping ingest."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.secret.outputs.ready == 'true'
+        uses: actions/checkout@v4
+      - if: steps.secret.outputs.ready == 'true'
+        uses: astral-sh/setup-uv@v6
+      - if: steps.secret.outputs.ready == 'true'
+        run: uv sync --locked --no-dev
+      - if: steps.secret.outputs.ready == 'true'
+        run: uv run --no-dev python -m fixturefeed.db
+      - if: steps.secret.outputs.ready == 'true'
+        run: uv run --no-dev python -m fixturefeed.ingest
