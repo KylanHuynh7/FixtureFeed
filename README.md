@@ -7,6 +7,19 @@ duplicated.
 
 Schedule data: [nflverse](https://github.com/nflverse/nfldata).
 
+## Features
+
+- **Private feed links** for any NFL team, with optional filters: home/away
+  only and primetime only (7 PM ET or later). Leaked links can be replaced.
+- **In-place updates**: each game keeps one permanent UID; SEQUENCE rises
+  only when something a calendar shows changes. TBD kickoffs appear as
+  all-day "(time TBD)" events until announced; cancelled games stay visible
+  as cancelled.
+- **Change history** per team at `/teams/<TEAM>/changes`, in plain English.
+- **Change notifications** via an Atom feed (`/teams/<TEAM>/changes.atom`)
+  that any feed reader can watch.
+- **Health check** at `/healthz` (flags a stalled ingest).
+
 ## Run locally
 
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/), and PostgreSQL 17.
@@ -37,7 +50,10 @@ uv run uvicorn fixturefeed.web:app --reload
 uv run pytest
 ```
 
-The test database is wiped on every run.
+The test database is wiped on every run. Tests include a recorded real
+nflverse snapshot, a round trip through an independent ICS parser
+(`vobject`), and property-based tests (`hypothesis`) of the change-detection
+invariants. CI runs the same suite on GitHub Actions.
 
 ## How schedule changes are handled
 
