@@ -3,6 +3,7 @@
 {% block content %}
 <h1>{{ team_name }}</h1>
 {% if filter_label %}<p class="tag">{{ filter_label }}</p>{% endif %}
+{% if replaced %}<p class="card notice">New link created. The old link no longer works; remove the old calendar subscription and add this one.</p>{% endif %}
 <p class="lede">Your private calendar link. Anyone with it can see this feed, so keep it to yourself.</p>
 <div class="card">
   <label for="url">Calendar URL</label>
@@ -15,5 +16,9 @@
   <small>Times are listed in Eastern Time (ET); your calendar shows them in your own time zone.
   Calendar apps check for updates on their own schedule (Google can take 12–24 hours).</small>
 </div>
+<form method="post" action="/feeds/{{ token }}/replace" class="replace">
+  <small>Shared this link by mistake?</small>
+  <button type="submit" class="secondary">Replace with a new link</button>
+</form>
 <p><a href="/teams/{{ team_abbr }}/changes">See every schedule change for the {{ team_name }}</a></p>
 {% endblock %}

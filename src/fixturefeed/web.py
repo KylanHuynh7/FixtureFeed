@@ -6,29 +6,56 @@ Run locally:
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from importlib.resources import files
 from typing import Annotated
 
 import psycopg
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from importlib.resources import files
+from psycopg_pool import ConnectionPool
 
 from fixturefeed.atom import render_atom
 from fixturefeed.config import APP_NAME, CURRENT_SEASON
-from fixturefeed.db import connect
+from fixturefeed.db import database_url
+from fixturefeed.ratelimit import SlidingWindowLimiter
 from fixturefeed.feed import FeedFilter, format_et, load_team_games, render_team_feed
 from fixturefeed.history import first_snapshot, load_team_history
 
-app = FastAPI(title=APP_NAME)
+# Opened when the app starts; small because one instance serves light traffic.
+pool = ConnectionPool(database_url(), min_size=1, max_size=5, open=False)
+# New links per client IP. Generous for people, stops scripted spam.
+link_limiter = SlidingWindowLimiter(limit=20, window_seconds=3600)
+# /healthz reports "stale" if no snapshot has been fetched for this long.
+STALE_AFTER = timedelta(hours=6)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    pool.open()
+    yield
+    pool.close()
+
+
+app = FastAPI(title=APP_NAME, lifespan=lifespan)
 templates = Jinja2Templates(directory=str(files("fixturefeed").joinpath("templates")))
 templates.env.globals["app_name"] = APP_NAME
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Feed pages carry the private token in their URL; never leak it via Referer.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def get_conn() -> Iterator[psycopg.Connection]:
-    with connect() as conn:
+    with pool.connection() as conn:
         yield conn
 
 
@@ -43,11 +70,13 @@ def choose_team(request: Request, conn: Conn):
 
 @app.post("/feeds")
 def create_feed(
+    request: Request,
     team: Annotated[str, Form()],
     conn: Conn,
     side: Annotated[str, Form()] = "all",
     primetime_only: Annotated[bool, Form()] = False,
 ):
+    _check_rate_limit(request)
     if not conn.execute("SELECT 1 FROM teams WHERE abbr = %s", (team,)).fetchone():
         raise HTTPException(status_code=400, detail="Unknown team")
     if side not in ("all", "home", "away"):
@@ -59,6 +88,45 @@ def create_feed(
             (token, team, side, primetime_only),
         )
     return RedirectResponse(f"/feeds/{token}", status_code=303)
+
+
+@app.post("/feeds/{token}/replace")
+def replace_feed(token: str, request: Request, conn: Conn):
+    """Issue a new link with the same settings and disable the old one."""
+    _check_rate_limit(request)
+    new_token = secrets.token_urlsafe(16)
+    with conn.transaction():
+        row = conn.execute(
+            "UPDATE feeds SET token = %s WHERE token = %s RETURNING id", (new_token, token)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    return RedirectResponse(f"/feeds/{new_token}?replaced=1", status_code=303)
+
+
+@app.get("/healthz")
+def healthz(conn: Conn):
+    row = conn.execute(
+        "SELECT max(fetched_at), max(fetched_at) FILTER (WHERE accepted) FROM snapshots"
+    ).fetchone()
+    last_fetch, last_accepted = row
+    now = datetime.now(timezone.utc)
+    stale = last_fetch is None or now - last_fetch > STALE_AFTER
+    return JSONResponse({
+        "status": "stale" if stale else "ok",
+        "last_fetch": _utc_iso(last_fetch),
+        "last_accepted": _utc_iso(last_accepted),
+    })
+
+
+def _utc_iso(dt: datetime | None) -> str | None:
+    return dt.astimezone(timezone.utc).isoformat() if dt else None
+
+
+def _check_rate_limit(request: Request) -> None:
+    client = request.client.host if request.client else "unknown"
+    if not link_limiter.allow(client):
+        raise HTTPException(status_code=429, detail="Too many new links; try again later")
 
 
 # Declared before the HTML route: both patterns would match "<token>.ics".
@@ -81,7 +149,8 @@ def feed_page(token: str, request: Request, conn: Conn):
     return templates.TemplateResponse(
         request, "feed.html",
         {"team_name": name, "filter_label": flt.label, "team_abbr": abbr,
-         "https_url": https_url, "webcal_url": webcal_url},
+         "https_url": https_url, "webcal_url": webcal_url, "token": token,
+         "replaced": request.query_params.get("replaced") == "1"},
     )
 
 
