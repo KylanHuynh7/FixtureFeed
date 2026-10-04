@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local env and secrets
+.env
+
+# Spike samples: kept out of git until source terms are settled (DECISIONS.md #11, #12)
+research/spike/samples/
+
+# macOS
+.DS_Store
+
+# Raw schedule snapshots (DECISIONS.md #18)
+data/
+.hypothesis/

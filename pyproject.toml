@@ -1,0 +1,29 @@
+[project]
+name = "fixturefeed"
+version = "0.1.0"
+description = "Subscribable NFL calendar feeds that update events in place when games move."
+authors = [
+    { name = "KylanHuynh", email = "huynh.kylan7@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.142.2",
+    "icalendar>=7.3.0",
+    "jinja2>=3.1.6",
+    "psycopg-pool>=3.3.3",
+    "psycopg[binary]>=3.3.6",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "hypothesis>=6.168.3",
+    "pytest>=9.1.1",
+    "vobject>=0.9.9",
+]

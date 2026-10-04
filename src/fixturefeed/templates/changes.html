@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ team_name }} schedule changes · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>{{ team_name }}</h1>
+<p class="lede">Schedule changes detected for the {{ season }} season{% if tracking_since %}, tracking since {{ tracking_since }}{% endif %}.
+<a href="{{ atom_url }}">Follow changes in a feed reader</a>.</p>
+{% if entries %}
+<ol class="history">
+  {% for e in entries %}
+  <li class="card">
+    <small>Detected {{ e.detected }}</small>
+    <h2>{{ e.title }}</h2>
+    <ul>{% for m in e.messages %}<li>{{ m }}</li>{% endfor %}</ul>
+    <small>Now: {{ e.kickoff_now }}</small>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<div class="card">No schedule changes detected yet. When a game is moved, flexed, or cancelled, it will appear here.</div>
+{% endif %}
+<p><a href="/">← Get a calendar link</a></p>
+{% endblock %}
