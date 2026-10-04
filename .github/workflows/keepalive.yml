@@ -1,0 +1,27 @@
+name: Keepalive
+
+# GitHub pauses scheduled workflows (like the 30-minute ingest) after 60 days
+# with no repository activity. A small monthly commit resets that clock
+# (DECISIONS.md #24). Vercel skips deploying these commits (see vercel.json).
+on:
+  schedule:
+    - cron: "17 12 1 * *"   # 12:17 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commit keepalive marker
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive
+          git commit -m "chore: keepalive (resets GitHub's 60-day schedule pause)"
+          git push
