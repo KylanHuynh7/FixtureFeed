@@ -25,7 +25,9 @@ def database_url() -> str:
 
 
 def connect(url: str | None = None) -> psycopg.Connection:
-    return psycopg.connect(url or database_url())
+    # prepare_threshold=None: no server-side prepared statements, which
+    # transaction-mode poolers (e.g. Neon's pooled endpoint) don't support.
+    return psycopg.connect(url or database_url(), prepare_threshold=None)
 
 
 def migration_files() -> list[tuple[str, str]]:

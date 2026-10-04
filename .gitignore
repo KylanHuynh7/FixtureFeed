@@ -16,3 +16,5 @@ research/spike/samples/
 # Raw schedule snapshots (DECISIONS.md #18)
 data/
 .hypothesis/
+.vercel
+.env*
