@@ -38,10 +38,12 @@ def save_raw_snapshot(raw: str, fetched_at: datetime, snapshot_dir: Path) -> Pat
 
 
 def ingest_snapshot(
-    conn: psycopg.Connection, raw: str, fetched_at: datetime, season: int
+    conn: psycopg.Connection, raw: str, fetched_at: datetime, season: int,
+    http_etag: str | None = None,
 ) -> IngestResult:
     """Parse, validate, diff, and persist one nflverse snapshot for `season`."""
     digest = hashlib.sha256(raw.encode()).hexdigest()
+    meta = (fetched_at, digest, http_etag)
 
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_INGEST_LOCK_KEY,))
@@ -49,21 +51,21 @@ def ingest_snapshot(
         try:
             incoming = nflverse.parse_games(raw, season)
         except nflverse.SnapshotError as e:
-            return _reject(conn, fetched_at, digest, 0, f"parse error: {e}")
+            return _reject(conn, meta, 0, f"parse error: {e}")
 
         stored = load_games(conn, season)
         reason = validate_snapshot(incoming, stored, _previous_row_count(conn))
         if reason is None:
             reason = _unknown_teams(conn, incoming)
         if reason:
-            return _reject(conn, fetched_at, digest, len(incoming), reason)
+            return _reject(conn, meta, len(incoming), reason)
 
         try:
             plan = plan_changes(stored, incoming, _espn_index(conn))
         except MatchConflict as e:
-            return _reject(conn, fetched_at, digest, len(incoming), f"match conflict: {e}")
+            return _reject(conn, meta, len(incoming), f"match conflict: {e}")
 
-        snapshot_id = _insert_snapshot(conn, fetched_at, digest, len(incoming), None)
+        snapshot_id = _insert_snapshot(conn, meta, len(incoming), None)
         for diff in plan.diffs:
             _write_game(conn, diff)
             _log_changes(conn, diff, snapshot_id)
@@ -106,17 +108,28 @@ def _unknown_teams(conn, incoming) -> str | None:
     return f"unknown teams: {', '.join(unknown)}" if unknown else None
 
 
-def _reject(conn, fetched_at, digest, row_count, reason) -> IngestResult:
-    snapshot_id = _insert_snapshot(conn, fetched_at, digest, row_count, reason)
+def _reject(conn, meta, row_count, reason) -> IngestResult:
+    snapshot_id = _insert_snapshot(conn, meta, row_count, reason)
     return IngestResult(snapshot_id, False, reason)
 
 
-def _insert_snapshot(conn, fetched_at, digest, row_count, reject_reason) -> int:
+def _insert_snapshot(conn, meta, row_count, reject_reason) -> int:
+    fetched_at, digest, http_etag = meta
     return conn.execute(
-        """INSERT INTO snapshots (source, fetched_at, sha256, row_count, accepted, reject_reason)
-           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
-        (nflverse.SOURCE, fetched_at, digest, row_count, reject_reason is None, reject_reason),
+        """INSERT INTO snapshots (source, fetched_at, sha256, row_count, accepted,
+                                  reject_reason, http_etag)
+           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+        (nflverse.SOURCE, fetched_at, digest, row_count, reject_reason is None,
+         reject_reason, http_etag),
     ).fetchone()[0]
+
+
+def last_snapshot(conn: psycopg.Connection) -> tuple[str, str | None] | None:
+    """(sha256, http_etag) of the most recent snapshot, accepted or not."""
+    return conn.execute(
+        "SELECT sha256, http_etag FROM snapshots WHERE source = %s ORDER BY id DESC LIMIT 1",
+        (nflverse.SOURCE,),
+    ).fetchone()
 
 
 def _write_game(conn, diff: GameDiff) -> None:

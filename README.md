@@ -21,6 +21,9 @@ uv run python -m fixturefeed.db
 # Download the current schedule and apply any changes
 uv run python -m fixturefeed.ingest
 
+# ...or keep it updated: re-check every 30 minutes (Ctrl-C to stop)
+uv run python -m fixturefeed.ingest --every 30
+
 # Start the web app at http://127.0.0.1:8000
 uv run uvicorn fixturefeed.web:app --reload
 ```
