@@ -7,7 +7,6 @@ Run locally:
 import hashlib
 import secrets
 from collections.abc import Iterator
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from typing import Annotated
@@ -16,31 +15,18 @@ import psycopg
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from psycopg_pool import ConnectionPool
 
 from fixturefeed.atom import render_atom
 from fixturefeed.config import APP_NAME, CURRENT_SEASON
-from fixturefeed.db import database_url
-from fixturefeed.ratelimit import SlidingWindowLimiter
+from fixturefeed.db import connect
+from fixturefeed.ratelimit import allow_link_event
 from fixturefeed.feed import FeedFilter, format_et, load_team_games, render_team_feed
 from fixturefeed.history import first_snapshot, load_team_history
 
-# Opened when the app starts; small because one instance serves light traffic.
-pool = ConnectionPool(database_url(), min_size=1, max_size=5, open=False)
-# New links per client IP. Generous for people, stops scripted spam.
-link_limiter = SlidingWindowLimiter(limit=20, window_seconds=3600)
 # /healthz reports "stale" if no snapshot has been fetched for this long.
 STALE_AFTER = timedelta(hours=6)
 
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    pool.open()
-    yield
-    pool.close()
-
-
-app = FastAPI(title=APP_NAME, lifespan=lifespan)
+app = FastAPI(title=APP_NAME)
 templates = Jinja2Templates(directory=str(files("fixturefeed").joinpath("templates")))
 templates.env.globals["app_name"] = APP_NAME
 
@@ -55,7 +41,9 @@ async def security_headers(request: Request, call_next):
 
 
 def get_conn() -> Iterator[psycopg.Connection]:
-    with pool.connection() as conn:
+    # One connection per request: serverless instances are short-lived, so
+    # pooling happens in the database's connection pooler instead.
+    with connect() as conn:
         yield conn
 
 
@@ -76,7 +64,7 @@ def create_feed(
     side: Annotated[str, Form()] = "all",
     primetime_only: Annotated[bool, Form()] = False,
 ):
-    _check_rate_limit(request)
+    _check_rate_limit(request, conn)
     if not conn.execute("SELECT 1 FROM teams WHERE abbr = %s", (team,)).fetchone():
         raise HTTPException(status_code=400, detail="Unknown team")
     if side not in ("all", "home", "away"):
@@ -93,7 +81,7 @@ def create_feed(
 @app.post("/feeds/{token}/replace")
 def replace_feed(token: str, request: Request, conn: Conn):
     """Issue a new link with the same settings and disable the old one."""
-    _check_rate_limit(request)
+    _check_rate_limit(request, conn)
     new_token = secrets.token_urlsafe(16)
     with conn.transaction():
         row = conn.execute(
@@ -123,9 +111,17 @@ def _utc_iso(dt: datetime | None) -> str | None:
     return dt.astimezone(timezone.utc).isoformat() if dt else None
 
 
-def _check_rate_limit(request: Request) -> None:
-    client = request.client.host if request.client else "unknown"
-    if not link_limiter.allow(client):
+def _client_ip(request: Request) -> str:
+    # Vercel sets x-real-ip / x-forwarded-for to the true client address.
+    if ip := request.headers.get("x-real-ip"):
+        return ip
+    if fwd := request.headers.get("x-forwarded-for"):
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(request: Request, conn) -> None:
+    if not allow_link_event(conn, _client_ip(request)):
         raise HTTPException(status_code=429, detail="Too many new links; try again later")
 
 
