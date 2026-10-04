@@ -1,20 +1,6 @@
 import re
 
-import pytest
 import vobject
-from fastapi.testclient import TestClient
-
-from fixturefeed.store import ingest_snapshot
-from fixturefeed.web import app, get_conn
-from tests.test_store import REAL, T0
-
-
-@pytest.fixture
-def client(db):
-    ingest_snapshot(db, REAL, T0, 2026)
-    app.dependency_overrides[get_conn] = lambda: db
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 def create_feed(client, team="SF"):

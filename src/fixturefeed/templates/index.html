@@ -9,6 +9,13 @@
     {% for abbr, name in teams %}<option value="{{ abbr }}">{{ name }}</option>
     {% endfor %}
   </select>
+  <fieldset>
+    <legend>Games</legend>
+    <label class="opt"><input type="radio" name="side" value="all" checked> All games</label>
+    <label class="opt"><input type="radio" name="side" value="home"> Home only</label>
+    <label class="opt"><input type="radio" name="side" value="away"> Away only</label>
+  </fieldset>
+  <label class="opt"><input type="checkbox" name="primetime_only" value="true"> Primetime only (7 PM ET or later)</label>
   <button type="submit">Get my calendar link</button>
 </form>
 {% endblock %}

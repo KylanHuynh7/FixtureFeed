@@ -2,6 +2,7 @@
 {% block title %}{{ team_name }} · {{ app_name }}{% endblock %}
 {% block content %}
 <h1>{{ team_name }}</h1>
+{% if filter_label %}<p class="tag">{{ filter_label }}</p>{% endif %}
 <p class="lede">Your private calendar link. Anyone with it can see this feed, so keep it to yourself.</p>
 <div class="card">
   <label for="url">Calendar URL</label>

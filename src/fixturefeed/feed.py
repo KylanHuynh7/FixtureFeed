@@ -5,7 +5,7 @@ game's last change, not the clock), so unchanged feeds are byte-identical.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import icalendar
@@ -43,9 +43,42 @@ GAME_TYPE_LABELS = {
 }
 
 
+# Kickoffs at or after this Eastern time count as primetime (TNF/SNF/MNF and
+# Saturday/holiday night games).
+PRIMETIME_START_ET = time(19, 0)
+
+
+@dataclass(frozen=True)
+class FeedFilter:
+    """Per-feed filters (DECISIONS.md #8). Applied when the feed is rendered."""
+
+    side: str = "all"  # all | home | away
+    primetime_only: bool = False
+
+    def matches(self, g: "FeedGame") -> bool:
+        if self.side == "home" and not g.is_home:
+            return False
+        if self.side == "away" and g.is_home:
+            return False
+        if self.primetime_only:
+            # A TBD kickoff can't be classified yet; it joins once announced.
+            return not g.time_tbd and g.start_utc.astimezone(EASTERN).time() >= PRIMETIME_START_ET
+        return True
+
+    @property
+    def label(self) -> str | None:
+        parts = {"home": ["Home games"], "away": ["Away games"]}.get(self.side, [])
+        if self.primetime_only:
+            parts.append("Primetime")
+        # " · " not ", ": icalendar writes X-WR-CALNAME commas unescaped, and
+        # parsers (vobject, possibly calendar apps) then split the name.
+        return " · ".join(parts) or None
+
+
 @dataclass(frozen=True)
 class FeedGame:
     ics_uid: str
+    is_home: bool
     game_type: str
     home_name: str
     away_name: str
@@ -58,26 +91,32 @@ class FeedGame:
     updated_at: datetime
 
 
-def load_team_games(conn: psycopg.Connection, team: str, season: int) -> list[FeedGame]:
+def load_team_games(
+    conn: psycopg.Connection, team: str, season: int, flt: FeedFilter = FeedFilter()
+) -> list[FeedGame]:
     rows = conn.execute(
-        """SELECT g.ics_uid, g.game_type, h.name, a.name, g.start_utc, g.time_tbd,
+        """SELECT g.ics_uid, g.home_team = %s, g.game_type, h.name, a.name, g.start_utc, g.time_tbd,
                   g.venue, g.status, g.sequence, g.first_seen_at, g.updated_at
            FROM games g
            JOIN teams h ON h.abbr = g.home_team
            JOIN teams a ON a.abbr = g.away_team
            WHERE g.season = %s AND %s IN (g.home_team, g.away_team)
            ORDER BY g.start_utc, g.ics_uid""",
-        (season, team),
+        (team, season, team),
     ).fetchall()
-    return [FeedGame(*r) for r in rows]
+    games = [FeedGame(*r) for r in rows]
+    return [g for g in games if flt.matches(g)]
 
 
-def render_team_feed(team_name: str, games: list[FeedGame]) -> bytes:
+def render_team_feed(
+    team_name: str, games: list[FeedGame], flt: FeedFilter = FeedFilter()
+) -> bytes:
     cal = icalendar.Calendar()
     cal.add("prodid", f"-//{APP_NAME}//{APP_NAME} NFL feed//EN")
     cal.add("version", "2.0")
     cal.add("calscale", "GREGORIAN")
-    cal.add("x-wr-calname", f"{team_name} ({APP_NAME})")
+    title = f"{team_name} · {flt.label}" if flt.label else team_name
+    cal.add("x-wr-calname", f"{title} ({APP_NAME})")
     cal.add("x-wr-timezone", "America/New_York")
     cal.add("refresh-interval", REFRESH_INTERVAL, parameters={"VALUE": "DURATION"})
     cal.add("x-published-ttl", REFRESH_INTERVAL)

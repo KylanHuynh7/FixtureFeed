@@ -22,3 +22,18 @@ def db():
         conn.commit()
         migrate(conn)
         yield conn
+
+
+@pytest.fixture
+def client(db):
+    """Web test client on the test database, preloaded with the real snapshot."""
+    from fastapi.testclient import TestClient
+
+    from fixturefeed.store import ingest_snapshot
+    from fixturefeed.web import app, get_conn
+    from tests.test_store import REAL, T0
+
+    ingest_snapshot(db, REAL, T0, 2026)
+    app.dependency_overrides[get_conn] = lambda: db
+    yield TestClient(app)
+    app.dependency_overrides.clear()

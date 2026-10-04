@@ -17,7 +17,7 @@ from importlib.resources import files
 
 from fixturefeed.config import APP_NAME, CURRENT_SEASON
 from fixturefeed.db import connect
-from fixturefeed.feed import load_team_games, render_team_feed
+from fixturefeed.feed import FeedFilter, load_team_games, render_team_feed
 
 app = FastAPI(title=APP_NAME)
 templates = Jinja2Templates(directory=str(files("fixturefeed").joinpath("templates")))
@@ -39,20 +39,30 @@ def choose_team(request: Request, conn: Conn):
 
 
 @app.post("/feeds")
-def create_feed(team: Annotated[str, Form()], conn: Conn):
+def create_feed(
+    team: Annotated[str, Form()],
+    conn: Conn,
+    side: Annotated[str, Form()] = "all",
+    primetime_only: Annotated[bool, Form()] = False,
+):
     if not conn.execute("SELECT 1 FROM teams WHERE abbr = %s", (team,)).fetchone():
         raise HTTPException(status_code=400, detail="Unknown team")
+    if side not in ("all", "home", "away"):
+        raise HTTPException(status_code=400, detail="Unknown filter")
     token = secrets.token_urlsafe(16)  # 128 random bits
     with conn.transaction():
-        conn.execute("INSERT INTO feeds (token, team_abbr) VALUES (%s, %s)", (token, team))
+        conn.execute(
+            "INSERT INTO feeds (token, team_abbr, side, primetime_only) VALUES (%s, %s, %s, %s)",
+            (token, team, side, primetime_only),
+        )
     return RedirectResponse(f"/feeds/{token}", status_code=303)
 
 
 # Declared before the HTML route: both patterns would match "<token>.ics".
 @app.get("/feeds/{token}.ics", name="team_feed")
 def team_feed(token: str, request: Request, conn: Conn):
-    team = _team_for_token(conn, token)
-    body = render_team_feed(team[1], load_team_games(conn, team[0], CURRENT_SEASON))
+    abbr, name, flt = _feed_for_token(conn, token)
+    body = render_team_feed(name, load_team_games(conn, abbr, CURRENT_SEASON, flt), flt)
     etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
     headers = {"ETag": etag, "Cache-Control": "private, max-age=300"}
     if request.headers.get("if-none-match") == etag:
@@ -62,21 +72,24 @@ def team_feed(token: str, request: Request, conn: Conn):
 
 @app.get("/feeds/{token}", response_class=HTMLResponse)
 def feed_page(token: str, request: Request, conn: Conn):
-    abbr, name = _team_for_token(conn, token)
+    abbr, name, flt = _feed_for_token(conn, token)
     https_url = str(request.url_for("team_feed", token=token))
     webcal_url = "webcal://" + https_url.split("://", 1)[1]
     return templates.TemplateResponse(
         request, "feed.html",
-        {"team_name": name, "https_url": https_url, "webcal_url": webcal_url},
+        {"team_name": name, "filter_label": flt.label,
+         "https_url": https_url, "webcal_url": webcal_url},
     )
 
 
-def _team_for_token(conn, token: str) -> tuple[str, str]:
+def _feed_for_token(conn, token: str) -> tuple[str, str, FeedFilter]:
     row = conn.execute(
-        """SELECT t.abbr, t.name FROM feeds f JOIN teams t ON t.abbr = f.team_abbr
+        """SELECT t.abbr, t.name, f.side, f.primetime_only
+           FROM feeds f JOIN teams t ON t.abbr = f.team_abbr
            WHERE f.token = %s""",
         (token,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Feed not found")
-    return row
+    abbr, name, side, primetime_only = row
+    return abbr, name, FeedFilter(side, primetime_only)
