@@ -48,6 +48,15 @@ GAME_TYPE_LABELS = {
 PRIMETIME_START_ET = time(19, 0)
 
 
+def format_et(dt: datetime, with_time: bool = True) -> str:
+    """'Thu Oct 8, 8:15 PM ET', or 'Thu Oct 8' without the time."""
+    et = dt.astimezone(EASTERN)
+    day = f"{et:%a %b} {et.day}"
+    if not with_time:
+        return day
+    return f"{day}, {et.hour % 12 or 12}:{et:%M %p} ET"
+
+
 @dataclass(frozen=True)
 class FeedFilter:
     """Per-feed filters (DECISIONS.md #8). Applied when the feed is rendered."""
@@ -151,8 +160,7 @@ def _event(g: FeedGame) -> icalendar.Event:
     else:
         ev.add("dtstart", start_et)
         ev.add("dtend", start_et + GAME_DURATION)
-        hour12 = start_et.hour % 12 or 12
-        kickoff = f"Kickoff: {start_et:%a %b} {start_et.day}, {hour12}:{start_et:%M %p} ET"
+        kickoff = f"Kickoff: {format_et(g.start_utc)}"
 
     if g.venue:
         ev.add("location", g.venue)

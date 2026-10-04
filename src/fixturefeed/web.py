@@ -6,6 +6,7 @@ Run locally:
 
 import hashlib
 import secrets
+from datetime import datetime, timezone
 from collections.abc import Iterator
 from typing import Annotated
 
@@ -15,9 +16,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from importlib.resources import files
 
+from fixturefeed.atom import render_atom
 from fixturefeed.config import APP_NAME, CURRENT_SEASON
 from fixturefeed.db import connect
-from fixturefeed.feed import FeedFilter, load_team_games, render_team_feed
+from fixturefeed.feed import FeedFilter, format_et, load_team_games, render_team_feed
+from fixturefeed.history import first_snapshot, load_team_history
 
 app = FastAPI(title=APP_NAME)
 templates = Jinja2Templates(directory=str(files("fixturefeed").joinpath("templates")))
@@ -77,9 +80,45 @@ def feed_page(token: str, request: Request, conn: Conn):
     webcal_url = "webcal://" + https_url.split("://", 1)[1]
     return templates.TemplateResponse(
         request, "feed.html",
-        {"team_name": name, "filter_label": flt.label,
+        {"team_name": name, "filter_label": flt.label, "team_abbr": abbr,
          "https_url": https_url, "webcal_url": webcal_url},
     )
+
+
+@app.get("/teams/{abbr}/changes", response_class=HTMLResponse, name="team_changes")
+def team_changes(abbr: str, request: Request, conn: Conn):
+    name = _team_name(conn, abbr)
+    first = first_snapshot(conn)
+    entries = [
+        {"title": e.title, "messages": e.messages, "kickoff_now": e.kickoff_now,
+         "detected": format_et(e.detected_at)}
+        for e in load_team_history(conn, abbr, CURRENT_SEASON)
+    ]
+    return templates.TemplateResponse(request, "changes.html", {
+        "team_name": name, "season": CURRENT_SEASON, "entries": entries,
+        "tracking_since": format_et(first[1]) if first else None,
+        "atom_url": request.url_for("team_changes_atom", abbr=abbr),
+    })
+
+
+@app.get("/teams/{abbr}/changes.atom", name="team_changes_atom")
+def team_changes_atom(abbr: str, request: Request, conn: Conn):
+    name = _team_name(conn, abbr)
+    first = first_snapshot(conn)
+    body = render_atom(
+        abbr, name, load_team_history(conn, abbr, CURRENT_SEASON, limit=50),
+        page_url=str(request.url_for("team_changes", abbr=abbr)),
+        self_url=str(request.url),
+        fallback_updated=first[1] if first else datetime.now(timezone.utc),
+    )
+    return Response(body, media_type="application/atom+xml; charset=utf-8")
+
+
+def _team_name(conn, abbr: str) -> str:
+    row = conn.execute("SELECT name FROM teams WHERE abbr = %s", (abbr,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Unknown team")
+    return row[0]
 
 
 def _feed_for_token(conn, token: str) -> tuple[str, str, FeedFilter]:
