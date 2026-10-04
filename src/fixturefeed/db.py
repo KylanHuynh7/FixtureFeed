@@ -21,7 +21,9 @@ _MIGRATE_LOCK_KEY = 0x46_46_4D_47  # "FFMG"
 
 
 def database_url() -> str:
-    return os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    # Strip: a URL pasted into a secrets UI often carries a trailing newline,
+    # which libpq then reads as part of the last parameter (e.g. sslmode).
+    return os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL).strip()
 
 
 def connect(url: str | None = None) -> psycopg.Connection:
