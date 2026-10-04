@@ -5,6 +5,8 @@ to Google or Apple Calendar. When a game is moved, flexed, or cancelled, the
 existing calendar event is updated (same UID, higher SEQUENCE) instead of
 duplicated.
 
+**Live:** https://fixturefeed.vercel.app
+
 Schedule data: [nflverse](https://github.com/nflverse/nfldata).
 
 ## Features
